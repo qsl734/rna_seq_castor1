@@ -1,0 +1,117 @@
+---
+title: "RNA-seq Data Analysis Pipeline"
+author: "Md Musaddaqul Hasib"
+date: '2022-12-23'
+output: github_document
+---
+
+## Loading Packages
+```{r}
+library(org.Mm.eg.db)
+library("DESeq2")
+library("genefilter")
+library(ggrepel)
+library(data.table)
+library("dplyr")
+library("ggplot2")
+```
+## Data directory
+
+```{r}
+data <- load('/ihome/yufeihuang/zhl169/timothy/Gao_mouse_CASTOR1/feature_counts.RData')
+```
+## Loading Dataset
+```{r}
+counts_KO <- count_matrix_KO$counts
+counts_WT <- count_matrix_WT$counts
+count_matrix <- cbind(counts_KO, counts_WT)
+```
+## What is in count matrix?
+```{r}
+dim(count_matrix)
+head(rownames(count_matrix))
+head(colnames(count_matrix))
+```
+we have 55414 genes    48 samples
+
+# Mapping genes from Ensemble to Gene name
+
+```{r}
+genes <- rownames(count_matrix)
+genes <- sapply(strsplit(genes, ".",fixed = TRUE), function(x) x[1])
+mapped_id <- mapIds(org.Mm.eg.db,keys = genes,column = 'SYMBOL',keytype = 'ENSEMBL')
+na_index <- is.na(mapped_id)
+rownames(count_matrix) <- mapped_id
+head(rownames(count_matrix))
+head(colnames(count_matrix))
+```
+Now we need to genes that could not be mapped
+
+# Convert count matrix to a data frame
+
+Before doing that we can trim our samples names for conveiniece.
+```{r}
+#count_matrix <- count_matrix[!na_index,]
+colnames(count_matrix) <- sapply(strsplit(colnames(count_matrix), ".",fixed = TRUE), function(x) x[1])
+count_matrix <- as.data.frame(count_matrix)
+head(count_matrix)
+```
+
+## DESeqDataSet object
+### Design formula
+The simplest design formula for differential expression would be ~ condition, where condition is a column in colData(dds) that specifies which of two (or more groups) the samples belong to.
+```{r}
+
+cond <- sapply(strsplit(colnames(count_matrix), "_",fixed = TRUE), function(x) x[1])
+cond <- sapply(strsplit(cond, "-",fixed = TRUE), function(x) x[2:4])
+cond[is.na(cond)] <- '0h'
+treatment <- cond[1,]
+time <- cond[3,]
+cond <- paste0(cond[1,],'_',cond[3,])
+colData <- data.frame(row.names=colnames(count_matrix), cond,treatment,time)
+head(colData)
+```
+count_matrix: a table with the fragment counts
+coldata: a table with information about the sample
+
+### DEseq dataset object from the matrix of counts and the sample information table
+
+If the research aim is to determine for which genes the effect of treatment is different across groups, then interaction terms can be included and tested using a design such as ~ group + treatment + group:treatment.
+
+```{r}
+dds <- DESeqDataSetFromMatrix(count_matrix, colData, ~ treatment)
+print(dds)
+```
+
+### 32875 genes before filtering
+```{r}
+nrow(dds)
+dds <- dds[ rowSums(counts(dds)) > 1, ]
+nrow(dds)
+```
+### 24067 genes after filtering
+
+### Testing suitable transformation choice to stabilize variance and mean. 
+
+### rlog and vst
+
+```{r}
+rld <- rlog(dds, blind = FALSE)
+vsd <- vst(dds, blind = FALSE)
+```
+```{r}
+dds <- estimateSizeFactors(dds)
+colData$sizeFactor <- dds$sizeFactor
+```
+
+### plot size factor per sample 
+We are going to use ggplot
+
+```{r}
+ggplot(data=colData, aes(x=cond, y=sizeFactor, cond = time)) + geom_point(size = 0.3)+ theme_minimal() +
+  geom_text_repel(aes(label = cond), size = 3, show.legend = FALSE)
+```
+
+
+
+
